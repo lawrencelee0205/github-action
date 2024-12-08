@@ -28,4 +28,4 @@ jobs:
             - name: Access secret
               env:
                 MY_SECRET: ${{secrets.MY_SECRET}}
-              run: echo "MY_SECRET is $secrets.MY_SECRET"
+              run: echo "MY_SECRET is $MY_SECRET"
