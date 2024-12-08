@@ -32,3 +32,12 @@ jobs:
 
             - name: Access configured vars
               run: echo "MY_VARIABLE is ${{vars.MY_VARIABLE}}"
+
+    another_job:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Comment PR
+              uses: thollander/actions-comment-pull-request@v1
+              with:
+                message: 'This is from another job'
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
