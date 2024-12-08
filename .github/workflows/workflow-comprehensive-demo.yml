@@ -1,0 +1,170 @@
+name: CI/CD Pipeline
+
+# Trigger the workflow on different events
+on:
+  push:
+    branches:
+      - main        # Trigger on push to the 'main' branch
+    tags:
+      - 'v*'        # Trigger on version tags (e.g., v1.0.0, v2.0.1)
+  pull_request:
+    branches:
+      - main        # Trigger on pull requests to the 'main' branch
+  schedule:
+    - cron: '0 0 * * 1'  # Run the workflow every Monday at midnight
+
+jobs:
+  # Job 1: Run tests with multiple Python versions (matrix build)
+  test:
+    runs-on: ubuntu-latest  # The job will run on the latest Ubuntu runner
+
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, 3.10]  # Test on different Python versions
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3  # Checkout the code from the repository
+
+      - name: Set up Python
+        uses: actions/setup-python@v4  # Setup Python
+        with:
+          python-version: ${{ matrix.python-version }}  # Use the matrix version
+
+      - name: Cache dependencies
+        uses: actions/cache@v3  # Cache dependencies to speed up future builds
+        with:
+          path: ~/.cache/pip  # Cache pip dependencies
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}  # Cache key based on requirements.txt
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt  # Install Python dependencies
+
+      - name: Run tests
+        id: test  # Assign an id for referencing this step
+        run: |
+          pytest --maxfail=3 --disable-warnings -q  # Run tests with pytest
+
+      - name: Save test results
+        if: ${{ steps.test.outcome == 'success' }}  # Save test results if successful
+        run: |
+          echo "Tests passed successfully"
+
+      - name: Upload test results (optional)
+        if: ${{ always() }}  # Always run this step, regardless of the test result
+        uses: actions/upload-artifact@v3  # Upload test results as an artifact
+        with:
+          name: test-results
+          path: ./test-reports/
+
+  # Job 2: Deploy to Staging (runs after successful tests)
+  deploy-staging:
+    runs-on: ubuntu-latest  # Runs on an Ubuntu runner
+
+    needs: test  # The deploy-staging job depends on the completion of the 'test' job
+    if: ${{ success() }}  # Only run if the test job is successful
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3  # Checkout the repository code
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3  # Setup Node.js (for JS-based projects)
+        with:
+          node-version: '16'
+
+      - name: Deploy to Staging Server
+        env:
+          STAGING_API_KEY: ${{ secrets.STAGING_API_KEY }}  # Using secrets for sensitive data
+        run: |
+          echo "Deploying to Staging..."
+          # Add staging deployment script here, e.g., deploying to AWS, Heroku, etc.
+
+      - name: Notify Staging Deployment Success
+        run: |
+          echo "Staging deployment completed successfully"
+
+  # Job 3: Deploy to Production (manual trigger)
+  deploy-production:
+    runs-on: ubuntu-latest  # Runs on an Ubuntu runner
+
+    needs: test  # This job also depends on successful tests
+    if: ${{ github.ref == 'refs/tags/v*' }}  # Only deploy on version tags (e.g., v1.0.0)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3  # Checkout the repository code
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Deploy to Production Server
+        env:
+          PROD_API_KEY: ${{ secrets.PROD_API_KEY }}  # Using secrets for production API key
+        run: |
+          echo "Deploying to Production..."
+          # Add production deployment script here, e.g., deploying to AWS, Heroku, etc.
+
+      - name: Notify Production Deployment Success
+        run: |
+          echo "Production deployment completed successfully"
+
+  # Job 4: Lint Code (ensure code quality)
+  lint:
+    runs-on: ubuntu-latest  # Runs on an Ubuntu runner
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3  # Checkout the repository code
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install linters
+        run: |
+          pip install flake8  # Install flake8 for linting Python code
+
+      - name: Lint the code
+        run: |
+          flake8 .  # Run flake8 to lint the code
+
+  # Job 5: Send Notifications on Success/Failure (using GitHub API and Slack)
+  notify:
+    runs-on: ubuntu-latest  # Runs on an Ubuntu runner
+
+    needs: [deploy-staging, deploy-production]  # This job depends on the completion of the deploy jobs
+    if: ${{ always() }}  # Always run this job regardless of the outcome
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3  # Checkout the repository code
+
+      - name: Send success notification to Slack (Staging)
+        if: ${{ success() }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Staging deployment succeeded!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Send failure notification to Slack (Production)
+        if: ${{ failure() }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Production deployment failed!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Job 6: Clean up old artifacts (optional)
+  cleanup:
+    runs-on: ubuntu-latest  # Runs on an Ubuntu runner
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Clean up old artifacts
+        run: |
+          echo "Cleaning up old test results and build artifacts..."
+          # Add commands to delete old files or artifacts here
